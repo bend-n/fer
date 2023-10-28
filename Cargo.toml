@@ -1,43 +1,26 @@
-[workspace]
-members = [
-    "testing",
-    "resizer",
-]
-
-
 [package]
-name = "fast_image_resize"
-version = "2.7.3"
+name = "fer"
+version = "0.1.1"
 authors = ["Kirill Kuzminykh <cykooz@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Library for fast image resizing with using of SIMD instructions"
+description = "Library for fast image resizing with using of SIMD instructions, slim version"
 readme = "README.md"
 keywords = ["image", "resize"]
-repository = "https://github.com/cykooz/fast_image_resize"
-documentation = "https://docs.rs/crate/fast_image_resize"
-exclude = ["/data"]
-
-
-[dependencies]
-num-traits = "0.2"
-thiserror = "1.0"
-
-[features]
-for_test = []
+repository = "https://github.com/bend-n/fer"
+exclude = ["/data", "/benches"]
 
 [dev-dependencies]
-fast_image_resize = { path = ".", features = ["for_test"] }
-image = "0.24"
+image = { version = "0.24", default-features = false }
 resize = "0.7.4"
 rgb = "0.8"
-png = "0.17"
 serde = { version = "1.0", features = ["serde_derive"] }
 serde_json = "1"
 walkdir = "2"
 itertools = "0.10"
-criterion = { version = "0.4", default-features = false, features = ["cargo_bench_support"] }
-testing = { path = "testing" }
+criterion = { version = "0.4", default-features = false, features = [
+    "cargo_bench_support",
+] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 nix = { version = "0.26", default-features = false, features = ["sched"] }
@@ -45,57 +28,62 @@ nix = { version = "0.26", default-features = false, features = ["sched"] }
 
 [[bench]]
 name = "bench_resize"
+path = "benches/bench_resize.rs"
 harness = false
-
 
 [[bench]]
 name = "bench_alpha"
+path = "benches/bench_alpha.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_rgb"
+path = "benches/bench_compare_rgb.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_rgb16"
+path = "benches/bench_compare_rgb16.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_rgba"
+path = "benches/bench_compare_rgba.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_rgba16"
+path = "benches/bench_compare_rgba16.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_l"
+path = "benches/bench_compare_l.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_la"
+path = "benches/bench_compare_la.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_l16"
+path = "benches/bench_compare_l16.rs"
 harness = false
 
 
 [[bench]]
 name = "bench_compare_la16"
+path = "benches/bench_compare_la16.rs"
 harness = false
 
-
-[[bench]]
-name = "bench_color_mapper"
-harness = false
 
 
 [profile.dev.package.'*']
@@ -110,7 +98,7 @@ lto = true
 strip = true
 
 
-[profile.release.package.fast_image_resize]
+[profile.release.package.fer]
 codegen-units = 1
 
 
@@ -129,7 +117,7 @@ opt-level = 3
 [package.metadata.release]
 pre-release-replacements = [
     { file = "CHANGELOG.md", search = "Unreleased", replace = "{{version}}" },
-    { file = "CHANGELOG.md", search = "ReleaseDate", replace = "{{date}}" }
+    { file = "CHANGELOG.md", search = "ReleaseDate", replace = "{{date}}" },
 ]
 
 # Header of next release in CHANGELOG.md:

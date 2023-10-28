@@ -3,9 +3,7 @@ use std::num::NonZeroU32;
 use crate::convolution::{self, Convolution, FilterType};
 use crate::image::InnerImage;
 use crate::pixels::PixelExt;
-use crate::{
-    DifferentTypesOfPixelsError, DynamicImageView, DynamicImageViewMut, ImageView, ImageViewMut,
-};
+use crate::{ImageView, ImageViewMut};
 
 /// SIMD extension of CPU.
 /// Specific variants depends from target architecture.
@@ -121,57 +119,14 @@ impl Resizer {
     /// This method doesn't multiply source image and doesn't divide
     /// destination image by alpha channel.
     /// You must use [MulDiv](crate::MulDiv) for these actions.
-    pub fn resize(
-        &mut self,
-        src_image: &DynamicImageView,
-        dst_image: &mut DynamicImageViewMut,
-    ) -> Result<(), DifferentTypesOfPixelsError> {
-        match (src_image, dst_image) {
-            (DynamicImageView::U8(src), DynamicImageViewMut::U8(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::U8x2(src), DynamicImageViewMut::U8x2(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::U8x3(src), DynamicImageViewMut::U8x3(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::U8x4(src), DynamicImageViewMut::U8x4(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::U16(src), DynamicImageViewMut::U16(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::U16x2(src), DynamicImageViewMut::U16x2(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::U16x3(src), DynamicImageViewMut::U16x3(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::U16x4(src), DynamicImageViewMut::U16x4(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::I32(src), DynamicImageViewMut::I32(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            (DynamicImageView::F32(src), DynamicImageViewMut::F32(dst)) => {
-                self.resize_inner(src, dst);
-            }
-            _ => {
-                return Err(DifferentTypesOfPixelsError);
-            }
-        }
-        Ok(())
-    }
-
-    fn resize_inner<P>(&mut self, src_image: &ImageView<P>, dst_image: &mut ImageViewMut<P>)
+    pub unsafe fn resize<P>(&mut self, src_image: &ImageView<P>, dst_image: &mut ImageViewMut<P>)
     where
         P: Convolution,
     {
-        if dst_image.copy_from_view(src_image).is_ok() {
-            // If `copy_from_view()` has returned `Ok` then
-            // the size of the destination image is equal to
-            // the size of the cropped source image.
+        if {
+            let src_crop_box = src_image.crop_box();
+            dst_image.width == src_crop_box.width && dst_image.height == src_crop_box.height
+        } {
             return;
         }
         match self.algorithm {
@@ -295,7 +250,6 @@ fn resample_convolution<P>(
 
     let need_horizontal = dst_width != crop_box.width;
     let horiz_coeffs = need_horizontal.then(|| {
-        test_log!("compute horizontal convolution coefficients");
         convolution::precompute_coefficients(
             src_image.width(),
             crop_box.left as f64,
@@ -308,7 +262,6 @@ fn resample_convolution<P>(
 
     let need_vertical = dst_height != crop_box.height;
     let vert_coeffs = need_vertical.then(|| {
-        test_log!("compute vertical convolution coefficients");
         convolution::precompute_coefficients(
             src_image.height(),
             crop_box.top as f64,
@@ -327,7 +280,7 @@ fn resample_convolution<P>(
             let y_last = last_y_bound.start + last_y_bound.size;
             let temp_height = NonZeroU32::new(y_last - y_first).unwrap();
             let mut temp_image = get_temp_image_from_buffer(temp_buffer, dst_width, temp_height);
-            let mut tmp_dst_view = temp_image.dst_view();
+            let mut tmp_dst_view = unsafe { temp_image.dst_view() };
             P::horiz_convolution(
                 src_image,
                 &mut tmp_dst_view,
@@ -400,10 +353,10 @@ fn resample_super_sampling<P>(
             NonZeroU32::new((crop_box.height.get() as f32 / factor).round() as u32).unwrap();
 
         let mut tmp_img = get_temp_image_from_buffer(temp_buffer, tmp_width, tmp_height);
-        resample_nearest(src_image, &mut tmp_img.dst_view());
+        resample_nearest(src_image, unsafe { &mut tmp_img.dst_view() });
         // Second step is resizing the temporary image with a convolution.
         resample_convolution(
-            &tmp_img.src_view(),
+            unsafe { &tmp_img.src_view() },
             dst_image,
             filter_type,
             cpu_extensions,

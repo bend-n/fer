@@ -1,4 +1,4 @@
-use fast_image_resize::pixels::U16x2;
+use fer::pixels::U16x2;
 
 mod utils;
 

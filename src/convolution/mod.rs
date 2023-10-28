@@ -24,7 +24,7 @@ mod u8x4;
 mod vertical_u16;
 mod vertical_u8;
 
-pub(crate) trait Convolution
+pub trait Convolution
 where
     Self: PixelExt,
 {

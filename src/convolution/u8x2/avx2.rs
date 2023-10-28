@@ -1,6 +1,6 @@
 use std::arch::x86_64::*;
 
-use crate::convolution::{Coefficients, optimisations};
+use crate::convolution::{optimisations, Coefficients};
 use crate::pixels::U8x2;
 use crate::simd_utils;
 use crate::{ImageView, ImageViewMut};
@@ -20,12 +20,7 @@ pub(crate) fn horiz_convolution(
     let dst_iter = dst_image.iter_4_rows_mut();
     for (src_rows, dst_rows) in src_iter.zip(dst_iter) {
         unsafe {
-            horiz_convolution_four_rows(
-                src_rows,
-                dst_rows,
-                &coefficients_chunks,
-                &normalizer,
-            );
+            horiz_convolution_four_rows(src_rows, dst_rows, &coefficients_chunks, &normalizer);
         }
     }
 

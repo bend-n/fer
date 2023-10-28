@@ -1,17 +1,14 @@
-pub use errors::*;
-
 use crate::pixels::PixelExt;
 use crate::CpuExtensions;
 use crate::{ImageView, ImageViewMut};
 
 mod common;
-pub(crate) mod errors;
 mod u16x2;
 mod u16x4;
 mod u8x2;
 mod u8x4;
 
-pub(crate) trait AlphaMulDiv
+pub trait AlphaMulDiv
 where
     Self: PixelExt,
 {

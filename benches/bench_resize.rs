@@ -1,8 +1,8 @@
 use std::num::NonZeroU32;
 
-use fast_image_resize::pixels::*;
-use fast_image_resize::Image;
-use fast_image_resize::{CpuExtensions, FilterType, PixelType, ResizeAlg, Resizer};
+use fer::pixels::*;
+use fer::Image;
+use fer::{CpuExtensions, FilterType, PixelType, ResizeAlg, Resizer};
 use testing::{cpu_ext_into_str, PixelTestingExt};
 
 mod utils;

@@ -3,53 +3,6 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::slice;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PixelType {
-    U8x2,
-    U8x3,
-    U8x4,
-    U16,
-    U16x2,
-    U16x3,
-    U16x4,
-    I32,
-    F32,
-    U8,
-}
-
-impl PixelType {
-    pub(crate) fn size(&self) -> usize {
-        match self {
-            Self::U8 => 1,
-            Self::U8x2 => 2,
-            Self::U8x3 => 3,
-            Self::U16 => 2,
-            Self::U16x2 => 4,
-            Self::U16x3 => 6,
-            Self::U16x4 => 8,
-            _ => 4,
-        }
-    }
-
-    /// Returns `true` if given buffer is aligned by the alignment of pixel.
-    pub(crate) fn is_aligned(&self, buffer: &[u8]) -> bool {
-        match self {
-            Self::U8 => true,
-            Self::U8x2 => unsafe { buffer.align_to::<U8x2>().0.is_empty() },
-            Self::U8x3 => unsafe { buffer.align_to::<U8x3>().0.is_empty() },
-            Self::U8x4 => unsafe { buffer.align_to::<U8x4>().0.is_empty() },
-            Self::U16 => unsafe { buffer.align_to::<U16>().0.is_empty() },
-            Self::U16x2 => unsafe { buffer.align_to::<U16x2>().0.is_empty() },
-            Self::U16x3 => unsafe { buffer.align_to::<U16x3>().0.is_empty() },
-            Self::U16x4 => unsafe { buffer.align_to::<U16x4>().0.is_empty() },
-            Self::I32 => unsafe { buffer.align_to::<I32>().0.is_empty() },
-            Self::F32 => unsafe { buffer.align_to::<F32>().0.is_empty() },
-        }
-    }
-}
-
 pub trait GetCount {
     fn count() -> usize;
 }
@@ -105,14 +58,10 @@ impl PixelComponent for f32 {
     type CountOfComponentValues = Values<0>;
 }
 
-pub trait IntoPixelType {
-    fn pixel_type() -> PixelType;
-}
-
 /// Additional information about pixel type.
 pub trait PixelExt
 where
-    Self: Copy + Clone + Sized + Debug + PartialEq + IntoPixelType,
+    Self: Copy + Clone + Sized + Debug + PartialEq,
 {
     /// Type of pixel components
     type Component: PixelComponent;
@@ -133,7 +82,7 @@ where
     ///
     /// Example:
     /// ```
-    /// # use fast_image_resize::pixels::{U8x2, U8x3, U8, PixelExt};
+    /// # use fer::pixels::{U8x2, U8x3, U8, PixelExt};
     /// assert_eq!(U8x3::size(), 3);
     /// assert_eq!(U8x2::size(), 2);
     /// assert_eq!(U8::size(), 1);
@@ -181,7 +130,7 @@ where
 
 impl<T, C, const COUNT_OF_COMPONENTS: usize> PixelExt for Pixel<T, C, COUNT_OF_COMPONENTS>
 where
-    Self: IntoPixelType + Debug,
+    Self: Debug,
     T: Sized + Copy + Clone + PartialEq + 'static,
     C: PixelComponent,
 {
@@ -190,15 +139,9 @@ where
 }
 
 macro_rules! pixel_struct {
-    ($name:ident, $type:tt, $comp_type:tt, $comp_count:literal, $pixel_type:expr, $doc:expr) => {
+    ($name:ident, $type:tt, $comp_type:tt, $comp_count:literal, $doc:expr) => {
         #[doc = $doc]
         pub type $name = Pixel<$type, $comp_type, $comp_count>;
-
-        impl IntoPixelType for $name {
-            fn pixel_type() -> PixelType {
-                $pixel_type
-            }
-        }
 
         impl Debug for $name {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -211,45 +154,22 @@ macro_rules! pixel_struct {
     };
 }
 
-pixel_struct!(U8, u8, u8, 1, PixelType::U8, "One byte per pixel (e.g. L8)");
-pixel_struct!(
-    U8x2,
-    u16,
-    u8,
-    2,
-    PixelType::U8x2,
-    "Two bytes per pixel (e.g. LA8)"
-);
-pixel_struct!(
-    U8x3,
-    [u8; 3],
-    u8,
-    3,
-    PixelType::U8x3,
-    "Three bytes per pixel (e.g. RGB8)"
-);
+pixel_struct!(U8, u8, u8, 1, "One byte per pixel (e.g. L8)");
+pixel_struct!(U8x2, u16, u8, 2, "Two bytes per pixel (e.g. LA8)");
+pixel_struct!(U8x3, [u8; 3], u8, 3, "Three bytes per pixel (e.g. RGB8)");
 pixel_struct!(
     U8x4,
     u32,
     u8,
     4,
-    PixelType::U8x4,
     "Four bytes per pixel (RGBA8, RGBx8, CMYK8 and other)"
 );
-pixel_struct!(
-    U16,
-    u16,
-    u16,
-    1,
-    PixelType::U16,
-    "One `u16` component per pixel (e.g. L16)"
-);
+pixel_struct!(U16, u16, u16, 1, "One `u16` component per pixel (e.g. L16)");
 pixel_struct!(
     U16x2,
     [u16; 2],
     u16,
     2,
-    PixelType::U16x2,
     "Two `u16` components per pixel (e.g. LA16)"
 );
 pixel_struct!(
@@ -257,7 +177,6 @@ pixel_struct!(
     [u16; 3],
     u16,
     3,
-    PixelType::U16x3,
     "Three `u16` components per pixel (e.g. RGB16)"
 );
 pixel_struct!(
@@ -265,25 +184,10 @@ pixel_struct!(
     [u16; 4],
     u16,
     4,
-    PixelType::U16x4,
     "Four `u16` components per pixel (e.g. RGBA16)"
 );
-pixel_struct!(
-    I32,
-    i32,
-    i32,
-    1,
-    PixelType::I32,
-    "One `i32` component per pixel"
-);
-pixel_struct!(
-    F32,
-    f32,
-    f32,
-    1,
-    PixelType::F32,
-    "One `f32` component per pixel"
-);
+pixel_struct!(I32, i32, i32, 1, "One `i32` component per pixel");
+pixel_struct!(F32, f32, f32, 1, "One `f32` component per pixel");
 
 pub trait IntoPixelComponent<Out: PixelComponent>
 where

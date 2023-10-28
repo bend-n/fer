@@ -3,7 +3,7 @@ use std::ops::Deref;
 use image::{imageops, ImageBuffer};
 
 use crate::utils::bencher::{bench, BenchGroup};
-use fast_image_resize::{CpuExtensions, FilterType, Image, MulDiv, ResizeAlg, Resizer};
+use fer::{CpuExtensions, FilterType, Image, MulDiv, ResizeAlg, Resizer};
 use testing::{cpu_ext_into_str, nonzero, PixelTestingExt};
 
 const ALG_NAMES: [&str; 4] = ["Nearest", "Bilinear", "CatmullRom", "Lanczos3"];

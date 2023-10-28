@@ -3,8 +3,8 @@ use std::mem::ManuallyDrop;
 use std::num::NonZeroU32;
 use std::slice;
 
+use crate::error;
 use crate::pixels::{GetCount, IntoPixelComponent, PixelComponent, PixelExt};
-use crate::{CropBoxError, DifferentDimensionsError, ImageBufferError, ImageRowsError, PixelType};
 
 /// Parameters of crop box that may be used with [`ImageView`]
 /// and [`DynamicImageView`](crate::DynamicImageView)
@@ -32,41 +32,18 @@ impl<'a, P> ImageView<'a, P>
 where
     P: PixelExt,
 {
-    pub fn new(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        rows: Vec<&'a [P]>,
-    ) -> Result<Self, ImageRowsError> {
-        check_rows_count_and_size(width, height, &rows)?;
-        Ok(Self {
-            width,
-            height,
-            crop_box: CropBox {
-                left: 0,
-                top: 0,
-                width,
-                height,
-            },
-            rows,
-        })
-    }
-
-    pub fn from_buffer(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        buffer: &'a [u8],
-    ) -> Result<Self, ImageBufferError> {
+    pub unsafe fn new(width: NonZeroU32, height: NonZeroU32, buffer: &'a [u8]) -> Self {
         let size = (width.get() * height.get()) as usize * P::size();
         if buffer.len() < size {
-            return Err(ImageBufferError::InvalidBufferSize);
+            error!();
         }
         let rows_count = height.get() as usize;
-        let pixels = align_buffer_to(buffer)?;
+        let pixels = unsafe { align_buffer_to(buffer) };
         let rows = pixels
             .chunks_exact(width.get() as usize)
             .take(rows_count)
             .collect();
-        Ok(Self {
+        Self {
             width,
             height,
             crop_box: CropBox {
@@ -76,24 +53,20 @@ where
                 height,
             },
             rows,
-        })
+        }
     }
 
-    pub fn from_pixels(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        pixels: &'a [P],
-    ) -> Result<Self, ImageBufferError> {
+    pub unsafe fn from_pixels(width: NonZeroU32, height: NonZeroU32, pixels: &'a [P]) -> Self {
         let size = (width.get() * height.get()) as usize;
         if pixels.len() < size {
-            return Err(ImageBufferError::InvalidBufferSize);
+            error!()
         }
         let rows_count = height.get() as usize;
         let rows = pixels
             .chunks_exact(width.get() as usize)
             .take(rows_count)
             .collect();
-        Ok(Self {
+        Self {
             width,
             height,
             crop_box: CropBox {
@@ -103,11 +76,7 @@ where
                 height,
             },
             rows,
-        })
-    }
-
-    pub fn pixel_type(&self) -> PixelType {
-        P::pixel_type()
+        }
     }
 
     pub fn width(&self) -> NonZeroU32 {
@@ -122,17 +91,16 @@ where
         self.crop_box
     }
 
-    pub fn set_crop_box(&mut self, crop_box: CropBox) -> Result<(), CropBoxError> {
+    pub unsafe fn set_crop_box(&mut self, crop_box: CropBox) {
         if crop_box.left >= self.width.get() || crop_box.top >= self.height.get() {
-            return Err(CropBoxError::PositionIsOutOfImageBoundaries);
+            error!();
         }
         let right = crop_box.left + crop_box.width.get();
         let bottom = crop_box.top + crop_box.height.get();
         if right > self.width.get() || bottom > self.height.get() {
-            return Err(CropBoxError::SizeIsOutOfImageBoundaries);
+            error!();
         }
         self.crop_box = crop_box;
-        Ok(())
     }
 
     /// Set a crop box to resize the source image into the
@@ -188,13 +156,14 @@ where
         let crop_left = (width - crop_width) * centering.0;
         let crop_top = (height - crop_height) * centering.1;
 
-        self.set_crop_box(CropBox {
-            left: crop_left.round() as u32,
-            top: crop_top.round() as u32,
-            width: NonZeroU32::new(crop_width.round() as u32).unwrap(),
-            height: NonZeroU32::new(crop_height.round() as u32).unwrap(),
-        })
-        .unwrap();
+        unsafe {
+            self.set_crop_box(CropBox {
+                left: crop_left.round() as u32,
+                top: crop_top.round() as u32,
+                width: NonZeroU32::new(crop_width.round() as u32).unwrap(),
+                height: NonZeroU32::new(crop_height.round() as u32).unwrap(),
+            })
+        };
     }
 
     #[inline(always)]
@@ -255,19 +224,6 @@ where
             row
         })
     }
-
-    #[inline(always)]
-    pub(crate) fn iter_cropped_rows<'s>(&'s self) -> impl Iterator<Item = &'a [P]> + 's {
-        let first_row = self.crop_box.top as usize;
-        let last_row = first_row + self.crop_box.height.get() as usize;
-        let rows = unsafe { self.rows.get_unchecked(first_row..last_row) };
-
-        let first_col = self.crop_box.left as usize;
-        let last_col = first_col + self.crop_box.width.get() as usize;
-        rows.iter()
-            // Safety guaranteed by method 'set_crop_box'
-            .map(move |row| unsafe { row.get_unchecked(first_col..last_col) })
-    }
 }
 
 /// Generic mutable image view.
@@ -276,8 +232,8 @@ pub struct ImageViewMut<'a, P>
 where
     P: PixelExt,
 {
-    width: NonZeroU32,
-    height: NonZeroU32,
+    pub(crate) width: NonZeroU32,
+    pub(crate) height: NonZeroU32,
     rows: Vec<&'a mut [P]>,
 }
 
@@ -285,64 +241,39 @@ impl<'a, P> ImageViewMut<'a, P>
 where
     P: PixelExt,
 {
-    pub fn new(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        rows: Vec<&'a mut [P]>,
-    ) -> Result<Self, ImageRowsError> {
-        check_rows_count_and_size(width, height, &rows)?;
-        Ok(Self {
-            width,
-            height,
-            rows,
-        })
-    }
-
-    pub fn from_buffer(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        buffer: &'a mut [u8],
-    ) -> Result<Self, ImageBufferError> {
+    pub unsafe fn new(width: NonZeroU32, height: NonZeroU32, buffer: &'a mut [u8]) -> Self {
         let size = (width.get() * height.get()) as usize * P::size();
         if buffer.len() < size {
-            return Err(ImageBufferError::InvalidBufferSize);
+            error!();
         }
         let rows_count = height.get() as usize;
-        let pixels = align_buffer_to_mut(buffer)?;
+        let pixels = unsafe { align_buffer_to_mut(buffer) };
         let rows = pixels
             .chunks_exact_mut(width.get() as usize)
             .take(rows_count)
             .collect();
-        Ok(Self {
+        Self {
             width,
             height,
             rows,
-        })
+        }
     }
 
-    pub fn from_pixels(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        pixels: &'a mut [P],
-    ) -> Result<Self, ImageBufferError> {
+    pub unsafe fn from_pixels(width: NonZeroU32, height: NonZeroU32, pixels: &'a mut [P]) -> Self {
         let size = (width.get() * height.get()) as usize;
         if pixels.len() < size {
-            return Err(ImageBufferError::InvalidBufferSize);
+            error!();
         }
         let rows_count = height.get() as usize;
         let rows = pixels
             .chunks_exact_mut(width.get() as usize)
             .take(rows_count)
             .collect();
-        Ok(Self {
+        Self {
             width,
             height,
             rows,
-        })
-    }
-
-    pub fn pixel_type(&self) -> PixelType {
-        P::pixel_type()
+        }
     }
 
     pub fn width(&self) -> NonZeroU32 {
@@ -373,31 +304,15 @@ where
         self.rows.get_mut(y as usize)
     }
 
-    /// Copy pixels from src_view.
-    pub(crate) fn copy_from_view(
-        &mut self,
-        src_view: &ImageView<P>,
-    ) -> Result<(), DifferentDimensionsError> {
-        let src_crop_box = src_view.crop_box();
-        if self.width != src_crop_box.width || self.height != src_crop_box.height {
-            return Err(DifferentDimensionsError);
-        }
-        self.rows
-            .iter_mut()
-            .zip(src_view.iter_cropped_rows())
-            .for_each(|(d, s)| d.copy_from_slice(s));
-        Ok(())
-    }
-
     /// Create cropped version of the view.
-    pub fn crop(self, crop_box: CropBox) -> Result<Self, CropBoxError> {
+    pub unsafe fn crop(self, crop_box: CropBox) -> Self {
         if crop_box.left >= self.width.get() || crop_box.top >= self.height.get() {
-            return Err(CropBoxError::PositionIsOutOfImageBoundaries);
+            error!();
         }
         let right = crop_box.left + crop_box.width.get();
         let bottom = crop_box.top + crop_box.height.get();
         if right > self.width.get() || bottom > self.height.get() {
-            return Err(CropBoxError::SizeIsOutOfImageBoundaries);
+            error!();
         }
         let row_range = (crop_box.left as usize)..(right as usize);
         let rows = self
@@ -407,11 +322,11 @@ where
             .take(crop_box.height.get() as usize)
             .map(|row| unsafe { row.get_unchecked_mut(row_range.clone()) })
             .collect();
-        Ok(Self {
+        Self {
             width: crop_box.width,
             height: crop_box.height,
             rows,
-        })
+        }
     }
 }
 
@@ -440,42 +355,26 @@ where
     }
 }
 
-fn check_rows_count_and_size<T>(
-    width: NonZeroU32,
-    height: NonZeroU32,
-    rows: &[impl AsRef<[T]>],
-) -> Result<(), ImageRowsError> {
-    if rows.len() != height.get() as usize {
-        return Err(ImageRowsError::InvalidRowsCount);
-    }
-    let row_size = width.get() as usize;
-    if rows.iter().any(|row| row.as_ref().len() != row_size) {
-        return Err(ImageRowsError::InvalidRowSize);
-    }
-    Ok(())
-}
-
-fn align_buffer_to<T>(buffer: &[u8]) -> Result<&[T], ImageBufferError> {
+unsafe fn align_buffer_to<T>(buffer: &[u8]) -> &[T] {
     let (head, pixels, _) = unsafe { buffer.align_to::<T>() };
     if !head.is_empty() {
-        return Err(ImageBufferError::InvalidBufferAlignment);
+        error!();
     }
-    Ok(pixels)
+    pixels
 }
 
-fn align_buffer_to_mut<T>(buffer: &mut [u8]) -> Result<&mut [T], ImageBufferError> {
+unsafe fn align_buffer_to_mut<T>(buffer: &mut [u8]) -> &mut [T] {
     let (head, pixels, _) = unsafe { buffer.align_to_mut::<T>() };
     if !head.is_empty() {
-        return Err(ImageBufferError::InvalidBufferAlignment);
+        error!();
     }
-    Ok(pixels)
+    pixels
 }
 
-pub fn change_type_of_pixel_components<S, D, In, Out, CC>(
+pub unsafe fn change_type_of_pixel_components<S, D, In, Out, CC>(
     src_image: &ImageView<S>,
     dst_image: &mut ImageViewMut<D>,
-) -> Result<(), DifferentDimensionsError>
-where
+) where
     Out: PixelComponent,
     In: IntoPixelComponent<Out>,
     CC: GetCount,
@@ -483,7 +382,7 @@ where
     D: PixelExt<Component = Out, CountOfComponents = CC>,
 {
     if src_image.width() != dst_image.width() || src_image.height() != dst_image.height() {
-        return Err(DifferentDimensionsError);
+        error!();
     }
 
     for (s_row, d_row) in src_image.rows.iter().zip(dst_image.rows.iter_mut()) {
@@ -491,38 +390,6 @@ where
         let d_components = D::components_mut(d_row);
         for (&s_comp, d_comp) in s_components.iter().zip(d_components) {
             *d_comp = s_comp.into_component();
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn crop_view_mut() {
-        let mut image = crate::Image::new(
-            NonZeroU32::new(64).unwrap(),
-            NonZeroU32::new(32).unwrap(),
-            PixelType::U8,
-        );
-
-        let image_view: ImageViewMut<crate::pixels::U8> =
-            ImageViewMut::from_buffer(image.width(), image.height(), image.buffer_mut()).unwrap();
-        let cropped_view = image_view
-            .crop(CropBox {
-                left: 10,
-                top: 10,
-                width: NonZeroU32::new(44).unwrap(),
-                height: NonZeroU32::new(12).unwrap(),
-            })
-            .unwrap();
-        assert_eq!(cropped_view.width().get(), 44);
-        assert_eq!(cropped_view.height().get(), 12);
-        assert_eq!(cropped_view.rows.len(), 12);
-        for row in cropped_view.rows.iter() {
-            assert_eq!(row.len(), 44);
         }
     }
 }

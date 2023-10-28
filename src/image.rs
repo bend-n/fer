@@ -1,7 +1,8 @@
+use std::marker::PhantomData;
 use std::num::NonZeroU32;
 
-use crate::pixels::{PixelExt, PixelType};
-use crate::{DynamicImageView, DynamicImageViewMut, ImageBufferError, ImageView, ImageViewMut};
+use crate::pixels::PixelExt;
+use crate::{error, ImageView, ImageViewMut};
 
 #[derive(Debug)]
 enum BufferContainer<'a> {
@@ -20,81 +21,64 @@ impl<'a> BufferContainer<'a> {
 
 /// Simple container of image data.
 #[derive(Debug)]
-pub struct Image<'a> {
+pub struct Image<'a, P: PixelExt> {
     width: NonZeroU32,
     height: NonZeroU32,
     buffer: BufferContainer<'a>,
-    pixel_type: PixelType,
+    pixel_type: PhantomData<P>,
 }
 
-impl<'a> Image<'a> {
+impl<'a, P: PixelExt> Image<'a, P> {
     /// Create empty image with given dimensions and pixel type.
-    pub fn new(width: NonZeroU32, height: NonZeroU32, pixel_type: PixelType) -> Self {
+    pub fn new(width: NonZeroU32, height: NonZeroU32) -> Self {
         let pixels_count = (width.get() * height.get()) as usize;
-        let buffer = BufferContainer::VecU8(vec![0; pixels_count * pixel_type.size()]);
+        let buffer = BufferContainer::VecU8(vec![0; pixels_count * P::size()]);
         Self {
             width,
             height,
             buffer,
-            pixel_type,
+            pixel_type: PhantomData,
         }
     }
 
-    pub fn from_vec_u8(
-        width: NonZeroU32,
-        height: NonZeroU32,
-        buffer: Vec<u8>,
-        pixel_type: PixelType,
-    ) -> Result<Self, ImageBufferError> {
-        let size = (width.get() * height.get()) as usize * pixel_type.size();
+    pub unsafe fn from_vec_u8(width: NonZeroU32, height: NonZeroU32, buffer: Vec<u8>) -> Self {
+        let size = (width.get() * height.get()) as usize * P::size();
         if buffer.len() < size {
-            return Err(ImageBufferError::InvalidBufferSize);
+            error!();
         }
-        if !pixel_type.is_aligned(&buffer) {
-            return Err(ImageBufferError::InvalidBufferAlignment);
-        }
-        Ok(Self {
+        Self {
             width,
             height,
             buffer: BufferContainer::VecU8(buffer),
-            pixel_type,
-        })
+            pixel_type: PhantomData,
+        }
     }
 
-    pub fn from_slice_u8(
+    pub unsafe fn from_slice_u8(
         width: NonZeroU32,
         height: NonZeroU32,
         buffer: &'a mut [u8],
-        pixel_type: PixelType,
-    ) -> Result<Self, ImageBufferError> {
-        let size = (width.get() * height.get()) as usize * pixel_type.size();
+    ) -> Self {
+        let size = (width.get() * height.get()) as usize * P::size();
         if buffer.len() < size {
-            return Err(ImageBufferError::InvalidBufferSize);
+            error!();
         }
-        if !pixel_type.is_aligned(buffer) {
-            return Err(ImageBufferError::InvalidBufferAlignment);
-        }
-        Ok(Self {
+        Self {
             width,
             height,
             buffer: BufferContainer::MutU8(buffer),
-            pixel_type,
-        })
+            pixel_type: PhantomData,
+        }
     }
 
     /// Creates a copy of the image.
-    pub fn copy(&self) -> Image<'static> {
+    pub fn copy(&self) -> Image<'static, P> {
         Image {
             width: self.width,
             height: self.height,
             buffer: BufferContainer::VecU8(self.buffer.as_vec()),
             pixel_type: self.pixel_type,
         }
-    }
-
-    #[inline(always)]
-    pub fn pixel_type(&self) -> PixelType {
-        self.pixel_type
     }
 
     #[inline(always)]
@@ -134,49 +118,13 @@ impl<'a> Image<'a> {
     }
 
     #[inline(always)]
-    pub fn view(&self) -> DynamicImageView {
-        macro_rules! get_dynamic_image {
-            ($img_type: expr) => {
-                ($img_type(ImageView::from_buffer(self.width, self.height, self.buffer()).unwrap()))
-            };
-        }
-
-        match self.pixel_type {
-            PixelType::U8 => get_dynamic_image!(DynamicImageView::U8),
-            PixelType::U8x2 => get_dynamic_image!(DynamicImageView::U8x2),
-            PixelType::U8x3 => get_dynamic_image!(DynamicImageView::U8x3),
-            PixelType::U8x4 => get_dynamic_image!(DynamicImageView::U8x4),
-            PixelType::U16 => get_dynamic_image!(DynamicImageView::U16),
-            PixelType::U16x2 => get_dynamic_image!(DynamicImageView::U16x2),
-            PixelType::U16x3 => get_dynamic_image!(DynamicImageView::U16x3),
-            PixelType::U16x4 => get_dynamic_image!(DynamicImageView::U16x4),
-            PixelType::I32 => get_dynamic_image!(DynamicImageView::I32),
-            PixelType::F32 => get_dynamic_image!(DynamicImageView::F32),
-        }
+    pub unsafe fn view(&self) -> ImageView<P> {
+        ImageView::new(self.width, self.height, self.buffer())
     }
 
     #[inline(always)]
-    pub fn view_mut(&mut self) -> DynamicImageViewMut {
-        macro_rules! get_dynamic_image {
-            ($img_type: expr) => {
-                ($img_type(
-                    ImageViewMut::from_buffer(self.width, self.height, self.buffer_mut()).unwrap(),
-                ))
-            };
-        }
-
-        match self.pixel_type {
-            PixelType::U8 => get_dynamic_image!(DynamicImageViewMut::U8),
-            PixelType::U8x2 => get_dynamic_image!(DynamicImageViewMut::U8x2),
-            PixelType::U8x3 => get_dynamic_image!(DynamicImageViewMut::U8x3),
-            PixelType::U8x4 => get_dynamic_image!(DynamicImageViewMut::U8x4),
-            PixelType::U16 => get_dynamic_image!(DynamicImageViewMut::U16),
-            PixelType::U16x2 => get_dynamic_image!(DynamicImageViewMut::U16x2),
-            PixelType::U16x3 => get_dynamic_image!(DynamicImageViewMut::U16x3),
-            PixelType::U16x4 => get_dynamic_image!(DynamicImageViewMut::U16x4),
-            PixelType::I32 => get_dynamic_image!(DynamicImageViewMut::I32),
-            PixelType::F32 => get_dynamic_image!(DynamicImageViewMut::F32),
-        }
+    pub unsafe fn view_mut(&mut self) -> ImageViewMut<P> {
+        ImageViewMut::new(self.width, self.height, self.buffer_mut())
     }
 }
 
@@ -203,12 +151,12 @@ where
     }
 
     #[inline(always)]
-    pub fn src_view(&self) -> ImageView<P> {
-        ImageView::from_pixels(self.width, self.height, self.pixels).unwrap()
+    pub unsafe fn src_view(&self) -> ImageView<P> {
+        ImageView::from_pixels(self.width, self.height, self.pixels)
     }
 
     #[inline(always)]
-    pub fn dst_view(&mut self) -> ImageViewMut<P> {
-        ImageViewMut::from_pixels(self.width, self.height, self.pixels).unwrap()
+    pub unsafe fn dst_view(&mut self) -> ImageViewMut<P> {
+        ImageViewMut::from_pixels(self.width, self.height, self.pixels)
     }
 }

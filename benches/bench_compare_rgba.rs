@@ -1,7 +1,7 @@
 use resize::Pixel::RGBA8P;
 use rgb::FromSlice;
 
-use fast_image_resize::pixels::U8x4;
+use fer::pixels::U8x4;
 use testing::PixelTestingExt;
 
 mod utils;

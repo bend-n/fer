@@ -1,8 +1,8 @@
 use std::num::NonZeroU32;
 
-use fast_image_resize::MulDiv;
-use fast_image_resize::PixelType;
-use fast_image_resize::{CpuExtensions, Image};
+use fer::MulDiv;
+use fer::PixelType;
+use fer::{CpuExtensions, Image};
 use testing::cpu_ext_into_str;
 
 mod utils;
